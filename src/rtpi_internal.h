@@ -29,7 +29,6 @@ union pi_cond {
 		__u32		cond;
 		__u32		flags;
 		__u32		wake_id;
-		__u32		pending_wait;
 	};
 	__u8 pad[128];
 } __attribute__ ((aligned(64)));
@@ -39,7 +38,6 @@ union pi_cond {
 	, .mutex = m \
 	, .cond = 0 \
 	, .flags = f \
-	, .wake_id = 0 \
-	, .pending_wait = 0 }
+	, .wake_id = 0 }
 
 #endif // RPTI_H_INTERNAL_H
