@@ -88,7 +88,7 @@ static int do_test(void)
 		return 1;
 	}
 
-	if (pi_cond_init(cond, mut2, RTPI_COND_PSHARED) != 0) {
+	if (pi_cond_init(cond, RTPI_COND_PSHARED) != 0) {
 		puts("cond_init failed");
 		return 1;
 	}
@@ -114,7 +114,7 @@ static int do_test(void)
 			return 1;
 		}
 
-		if (pi_cond_signal(cond) != 0) {
+		if (pi_cond_signal(cond, mut2) != 0) {
 			puts("child: cond_signal failed");
 			return 1;
 		}
@@ -154,10 +154,10 @@ static int do_test(void)
 			++ts.tv_sec;
 		}
 		do
-			if (pi_cond_timedwait(cond, &ts) != 0) {
+			if (pi_cond_timedwait(cond, mut2, &ts) != 0) {
 #else
 		do
-			if (pi_cond_wait(cond) != 0) {
+			if (pi_cond_wait(cond, mut2) != 0) {
 #endif
 				puts("parent: cond_wait failed");
 				return 1;
