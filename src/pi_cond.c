@@ -20,18 +20,13 @@ void pi_cond_free(pi_cond_t *cond)
 	free(cond);
 }
 
-int pi_cond_init(pi_cond_t *cond, pi_mutex_t *mutex, uint32_t flags)
+int pi_cond_init(pi_cond_t *cond, uint32_t flags)
 {
 	if (flags & ~(RTPI_COND_PSHARED | RTPI_COND_CLOCK_REALTIME))
 		return EINVAL;
 
-	/* PSHARED has to match on both. */
-	if ((flags & RTPI_COND_PSHARED) ^ (mutex->flags & RTPI_MUTEX_PSHARED))
-		return EINVAL;
-
 	memset(cond, 0, sizeof(*cond));
 	cond->flags = flags;
-	cond->mutex = mutex;
 
 	return 0;
 }
@@ -59,13 +54,14 @@ static inline bool ts_valid(const struct timespec *ts)
 	return true;
 }
 
-int pi_cond_timedwait(pi_cond_t *cond, const struct timespec *abstime)
+int pi_cond_timedwait(pi_cond_t *cond, pi_mutex_t *mutex,
+		      const struct timespec *abstime)
 {
 	int ret;
 	int err;
 	__u32 wake_id;
 	__u32 futex_id;
-	struct cancel_data cdata = { .mutex = cond->mutex };
+	struct cancel_data cdata = { .mutex = mutex };
 
 	if (abstime && !ts_valid(abstime))
 		return EINVAL;
@@ -74,7 +70,7 @@ int pi_cond_timedwait(pi_cond_t *cond, const struct timespec *abstime)
 	wake_id = cond->wake_id;
   again:
 	futex_id = cond->cond;
-	ret = pi_mutex_unlock(cond->mutex);
+	ret = pi_mutex_unlock(mutex);
 	if (ret)
 		return ret;
 
@@ -83,7 +79,7 @@ int pi_cond_timedwait(pi_cond_t *cond, const struct timespec *abstime)
 	pthread_cleanup_push(pi_cond_wait_cleanup, &cdata);
 	pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
 
-	ret = futex_wait_requeue_pi(cond, futex_id, abstime, cond->mutex);
+	ret = futex_wait_requeue_pi(cond, futex_id, abstime, mutex);
 	err = errno;
 
 	pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
@@ -96,7 +92,7 @@ int pi_cond_timedwait(pi_cond_t *cond, const struct timespec *abstime)
 		return 0;
 
 	/* For error cases we need to re-acquire the mutex. */
-	ret = pi_mutex_lock(cond->mutex);
+	ret = pi_mutex_lock(mutex);
 	if (ret)
 		return ret;
 
@@ -116,12 +112,13 @@ int pi_cond_timedwait(pi_cond_t *cond, const struct timespec *abstime)
 	return err;
 }
 
-int pi_cond_wait(pi_cond_t *cond)
+int pi_cond_wait(pi_cond_t *cond, pi_mutex_t *mutex)
 {
-	return pi_cond_timedwait(cond, NULL);
+	return pi_cond_timedwait(cond, mutex, NULL);
 }
 
-static int pi_cond_signal_common(pi_cond_t *cond, bool broadcast)
+static int pi_cond_signal_common(pi_cond_t *cond, pi_mutex_t *mutex,
+				 bool broadcast)
 {
 	int ret;
 	__u32 id;
@@ -133,7 +130,7 @@ again:
 
 	ret = futex_cmp_requeue_pi(cond, id,
 				   (broadcast) ? INT_MAX : 0,
-				   cond->mutex);
+				   mutex);
 	if (ret >= 0)
 		return ret;
 
@@ -143,32 +140,32 @@ again:
 	return -errno;
 }
 
-int pi_cond_signal(pi_cond_t *cond)
+int pi_cond_signal(pi_cond_t *cond, pi_mutex_t *mutex)
 {
-	int ret = pi_cond_signal_common(cond, false);
+	int ret = pi_cond_signal_common(cond, mutex, false);
 
 	return (ret >= 0) ? 0 : -ret;
 }
 
-int pi_cond_broadcast(pi_cond_t *cond)
+int pi_cond_broadcast(pi_cond_t *cond, pi_mutex_t *mutex)
 {
-	int ret = pi_cond_signal_common(cond, true);
+	int ret = pi_cond_signal_common(cond, mutex, true);
 
 	return (ret >= 0) ? 0 : -ret;
 }
 
-int pi_cond_destroy(pi_cond_t *cond)
+int pi_cond_destroy(pi_cond_t *cond, pi_mutex_t *mutex)
 {
 	int ret;
 	bool state;
 
-	ret = pi_mutex_lock_save(cond->mutex, state);
+	ret = pi_mutex_lock_save(mutex, state);
 	if (ret)
 		return ret;
 
-	ret = pi_cond_signal_common(cond, true);
+	ret = pi_cond_signal_common(cond, mutex, true);
 
-	pi_mutex_unlock_restore(cond->mutex, state);
+	pi_mutex_unlock_restore(mutex, state);
 
 	if (ret == 0) {
 		memset(cond, 0, sizeof(*cond));
