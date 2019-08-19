@@ -19,6 +19,30 @@ union pi_mutex {
 
 #define PI_MUTEX_INIT(f) { .futex = 0, .flags = f }
 
+#define pi_mutex_lock_save(mutex, state)		\
+({							\
+	int ret = pi_mutex_trylock(mutex);		\
+	state = false;					\
+	if (ret) {					\
+		if (ret == EDEADLOCK) {			\
+			state = true;			\
+			ret = 0;			\
+		} else	{				\
+			ret = futex_lock_pi(mutex);	\
+			ret = (ret) ? errno : 0;	\
+		}					\
+	}						\
+	ret;						\
+})
+
+#define pi_mutex_unlock_restore(mutex, state)		\
+({							\
+	int ret = 0;					\
+	if (!state)					\
+		ret = pi_mutex_unlock(mutex);		\
+	ret;						\
+})
+
 /*
  * PI Cond
  */
